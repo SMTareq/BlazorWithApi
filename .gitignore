@@ -1,0 +1,52 @@
+# .NET build outputs
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# VS Code settings (optional)
+.vscode/
+
+# macOS files
+.DS_Store
+
+# Windows thumbnail cache
+Thumbs.db
+
+# Rider project files
+.idea/
+
+# Android
+**/platforms/android/app/build/
+**/platforms/android/.gradle/
+**/platforms/android/.idea/
+**/platforms/android/local.properties
+**/platforms/android/.cxx/
+
+# iOS
+**/platforms/ios/Pods/
+**/platforms/ios/build/
+**/platforms/ios/DerivedData/
+**/platforms/ios/.generated/
+
+# MAUI
+AppPackages/
+DeviceTests/bin/
+DeviceTests/obj/
+MyNativeApp/Platforms/*/bin/
+MyNativeApp/Platforms/*/obj/
+
+# User secrets
+**/secrets.json
+
+# Logs
+*.log
+
+# npm artifacts (if used)
+node_modules/
+
+# JetBrains Rider
+.idea/
+*.sln.iml
