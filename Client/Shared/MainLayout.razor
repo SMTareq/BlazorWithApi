@@ -1,17 +1,44 @@
-﻿@inherits LayoutComponentBase
+@inherits LayoutComponentBase
+@using Microsoft.AspNetCore.Components.Authorization
+@using Blazored.LocalStorage
+@inject NavigationManager Navigation
+@inject ILocalStorageService LocalStorage
+@inject AuthenticationStateProvider AuthStateProvider
 
-<div class="page">
-    <div class="sidebar">
-        <NavMenu />
-    </div>
+<AuthorizeView>
+    <Authorized>
+        <div class="page">
+            <div class="sidebar">
+                <NavMenu />
+            </div>
 
-    <main>
-        <div class="top-row px-4">
-            <a href="https://docs.microsoft.com/aspnet/" target="_blank">About</a>
+
+            <main>
+                <div class="top-row px-4">
+                    <div class="d-flex justify-content-end w-100">
+                        <div class="d-flex align-items-center me-3">
+                            <span class="me-2">Hello, @context.User.Identity?.Name</span>
+                            <button class="btn btn-outline-danger btn-sm" @onclick="Logout">Logout</button>
+                        </div>
+                    </div>
+                </div>
+
+                <article class="content px-4">
+                    @Body
+                </article>
+            </main>
         </div>
+    </Authorized>
+</AuthorizeView>
 
-        <article class="content px-4">
-            @Body
-        </article>
-    </main>
-</div>
+@code {
+    private async Task Logout()
+    {
+        await LocalStorage.RemoveItemAsync("authToken");
+        if (AuthStateProvider is IHostEnvironmentAuthenticationStateProvider authService)
+        {
+            authService.SetAuthenticationState(Task.FromResult(new AuthenticationState(new ClaimsPrincipal())));
+        }
+        Navigation.NavigateTo("/", forceLoad: true);
+    }
+}

@@ -1,0 +1,287 @@
+@page "/mealschedule"
+@using BlazorWithApi.Shared.Models
+@using System.Net.Http.Json
+@using Microsoft.JSInterop
+@inject HttpClient Http
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+@inject Blazored.LocalStorage.ILocalStorageService LocalStorage
+@using System.Linq
+
+<PageTitle>Meal Schedule</PageTitle>
+
+<div class="container mt-4">
+    <h2>Meal Schedule for @selectedDate?.ToString("MMMM dd, yyyy")</h2>
+    
+    <div class="row mb-3">
+        <div class="col-md-4">
+            <div class="input-group">
+                <input type="date" class="form-control" @bind="selectedDate" @bind:format="yyyy-MM-dd" />
+                <button class="btn btn-primary" @onclick="() => LoadData()">
+                    <i class="bi bi-search"></i> Load
+                </button>
+            </div>
+        </div>
+    </div>
+
+    @if (isLoading)
+    {
+        <div class="text-center my-5">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+            </div>
+        </div>
+    }
+    else if (employees == null || !employees.Any())
+    {
+        <div class="alert alert-warning">
+            No active employees found.
+        </div>
+    }
+    else
+    {
+        <EditForm Model="@mealScheduleModel" OnValidSubmit="SaveMealSchedule">
+            <div class="table-responsive">
+                <table class="table table-bordered table-hover">
+                    <thead class="table-light">
+                        <tr>
+                            <th style="width: 60px;">SN</th>
+                            <th>Employee</th>
+                            <th style="width: 120px;">Meal Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @for (int i = 0; i < employees.Count; i++)
+                        {
+                            var employee = employees[i];
+                            var index = i;
+                            <tr>
+                                <td>@(i + 1)</td>
+                                <td>@employee.EmployeeName</td>
+                                <td class="text-center">
+                                    <div class="form-check form-switch d-flex justify-content-center">
+                                        <InputCheckbox class="form-check-input" 
+                                                     @bind="employeeMealStatus[employee.Id]"
+                                                     @bind:event="onchange" />
+                                    </div>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+            
+            <div class="mt-3">
+                <button type="submit" class="btn btn-primary" disabled="@isSaving">
+                    @if (isSaving)
+                    {
+                        <span class="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                        <span>Saving...</span>
+                    }
+                    else
+                    {
+                        <i class="bi bi-save me-1"></i>
+                        <span>Save Meal Schedule</span>
+                    }
+                </button>
+            </div>
+        </EditForm>
+    }
+</div>
+
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <div class="alert alert-danger mt-3">
+        @errorMessage
+    </div>
+}
+
+@code {
+    private List<Employee> employees = new();
+    private Dictionary<int, bool> employeeMealStatus = new();
+    private bool isLoading = true;
+    private bool isSaving = false;
+    private DateTime? selectedDate = DateTime.Today;
+    private string errorMessage = string.Empty;
+    
+    // Model for the form
+    private class MealScheduleModel { }
+    private readonly MealScheduleModel mealScheduleModel = new();
+    
+    protected override async Task OnInitializedAsync()
+    {
+        // Initialize the dictionary
+        employeeMealStatus = new Dictionary<int, bool>();
+        await LoadData();
+    }
+
+    private async Task LoadData()
+    {
+        try
+        {
+            isLoading = true;
+            errorMessage = string.Empty;
+            StateHasChanged();
+            
+            // Check authentication
+            var token = await LocalStorage.GetItemAsync<string>("authToken");
+            if (string.IsNullOrEmpty(token))
+            {
+                Navigation.NavigateTo("/login");
+                return;
+            }
+
+            // Set up the request with the auth token
+            var request = new HttpRequestMessage(HttpMethod.Get, "api/Employees/active");
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            
+            // Load active employees
+            var response = await Http.SendAsync(request);
+            if (response.IsSuccessStatusCode)
+            {
+                employees = await response.Content.ReadFromJsonAsync<List<Employee>>() ?? new List<Employee>();
+                
+                // Initialize meal status for each employee (default to true)
+                employeeMealStatus.Clear();
+                foreach (var employee in employees)
+                {
+                    if (!employeeMealStatus.ContainsKey(employee.Id))
+                    {
+                        employeeMealStatus[employee.Id] = true; // Default to true
+                    }
+                }
+            }
+            else if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            {
+                Navigation.NavigateTo("/login");
+                return;
+            }
+            
+            // Load existing meal schedule for the selected date if any
+            if (selectedDate.HasValue)
+            {
+                var date = selectedDate.Value.Date;
+                var scheduleRequest = new HttpRequestMessage(HttpMethod.Get, $"api/MealSchedules/date/{date:yyyy-MM-dd}");
+                scheduleRequest.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+                
+                var scheduleResponse = await Http.SendAsync(scheduleRequest);
+                
+                if (scheduleResponse.IsSuccessStatusCode)
+                {
+                    var schedules = await scheduleResponse.Content.ReadFromJsonAsync<List<MealScheduleDto>>() ?? new List<MealScheduleDto>();
+                    
+                    // Update meal status based on existing schedule
+                    foreach (var schedule in schedules)
+                    {
+                        if (employeeMealStatus.ContainsKey(schedule.EmployeeId))
+                        {
+                            employeeMealStatus[schedule.EmployeeId] = schedule.IsActive;
+                        }
+                    }
+                }
+                else if (scheduleResponse.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+                {
+                    Navigation.NavigateTo("/login");
+                    return;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error loading data: {ex.Message}";
+            Console.Error.WriteLine(errorMessage);
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+    
+    // Helper method to get or set meal status for an employee
+    private bool GetMealStatus(int employeeId) => 
+        employeeMealStatus.TryGetValue(employeeId, out var status) ? status : true;
+        
+    private void SetMealStatus(int employeeId, bool value) => 
+        employeeMealStatus[employeeId] = value;
+    
+    private async Task SaveMealSchedule()
+    {
+        try
+        {
+            isSaving = true;
+            errorMessage = string.Empty;
+            StateHasChanged();
+            
+            // Check authentication
+            var token = await LocalStorage.GetItemAsync<string>("authToken");
+            if (string.IsNullOrEmpty(token))
+            {
+                Navigation.NavigateTo("/login");
+                return;
+            }
+            
+            if (!selectedDate.HasValue)
+            {
+                errorMessage = "Please select a date.";
+                return;
+            }
+            
+            var date = selectedDate.Value.Date;
+            var schedulesToSave = new List<MealScheduleDto>();
+            
+            // Create meal schedule DTOs for each employee
+            foreach (var employee in employees)
+            {
+                if (employeeMealStatus.TryGetValue(employee.Id, out bool isActive))
+                {
+                    schedulesToSave.Add(new MealScheduleDto
+                    {
+                        EmployeeId = employee.Id,
+                        EmployeeName = employee.EmployeeName,
+                        MealDate = date,
+                        IsActive = isActive
+                    });
+                }
+            }
+            
+            // Prepare the request
+            var request = new HttpRequestMessage(HttpMethod.Post, "api/MealSchedules/batch");
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            request.Content = JsonContent.Create(schedulesToSave);
+            
+            // Send the request
+            var response = await Http.SendAsync(request);
+            
+            if (response.IsSuccessStatusCode)
+            {
+                // Refresh the data
+                await LoadData();
+                
+                // Show success message
+                await JSRuntime.InvokeVoidAsync("alert", "Meal schedule saved successfully!");
+            }
+            else if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            {
+                Navigation.NavigateTo("/login");
+                return;
+            }
+            else
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                errorMessage = $"Error saving meal schedule: {response.ReasonPhrase} - {errorContent}";
+                Console.Error.WriteLine(errorMessage);
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Error saving meal schedule: {ex.Message}";
+            Console.Error.WriteLine(errorMessage);
+        }
+        finally
+        {
+            isSaving = false;
+            StateHasChanged();
+        }
+    }
+}
